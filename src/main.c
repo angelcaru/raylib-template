@@ -43,10 +43,29 @@ bool load_libgame(void) {
     return true;
 }
 
+#ifdef HOTRELOAD
+void reload_libgame(void) {
+    Game *game = game_pre_reload();
+    load_libgame();
+    game_post_reload(game);
+}
+
+bool should_reload_libgame = false;
+
+void set_libgame_to_be_reloaded(int unused_arg_for_sigaction) {
+    UNUSED(unused_arg_for_sigaction);
+    should_reload_libgame = true;
+}
+#endif // HOTRELOAD
+
 int main(void) {
     InitWindow(640, 480, "My Raylib App");
 
     if (!load_libgame()) return 1;
+
+#ifdef HOTRELOAD
+    sigaction(SIGHUP, &(struct sigaction) { .sa_handler = set_libgame_to_be_reloaded }, NULL);
+#endif // HOTRELOAD
 
     game_init();
 
@@ -55,10 +74,9 @@ int main(void) {
 #else
     while (!WindowShouldClose()) {
 #ifdef HOTRELOAD
-        if (IsKeyPressed(KEY_F5)) {
-            Game *game = game_pre_reload();
-            load_libgame();
-            game_post_reload(game);
+        if (should_reload_libgame || IsKeyPressed(KEY_F5)) {
+            reload_libgame();
+            should_reload_libgame = false;
         }
 #endif // HOTRELOAD
         game_update();
