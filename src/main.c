@@ -4,39 +4,65 @@
 
 #include "raylib.h"
 
-#define MACRO_VAR(name) _##name##__LINE__
-#define BEGIN_END_NAMED(begin, end, i) for (int i = (begin, 0); i < 1; i++, end)
-#define BEGIN_END(begin, end) BEGIN_END_NAMED(begin, end, MACRO_VAR(i))
-#define Drawing() BEGIN_END(BeginDrawing(), EndDrawing())
-#define Mode3D(camera) BEGIN_END(BeginMode3D(camera), EndMode3D())
+#include "game.h"
 
 #ifdef PLATFORM_WEB
     #include <emscripten/emscripten.h>
 #endif // PLATFORM_WEB
 
-typedef struct {} Game;
+#define X(name, ...) name##_t name;
+GAME_FUNCS
+#undef X
 
-void game_init(Game *game) {
-    memset(game, 0, sizeof(*game));
-}
+#ifdef HOTRELOAD
+#include <dlfcn.h>
+void *libgame = NULL;
+#endif // HOTRELOAD
 
-void game_update(Game *game) {
-    UNUSED(game);
-    Drawing() {
-        ClearBackground(RED);
+bool load_libgame(void) {
+#ifdef HOTRELOAD
+
+    if (libgame != NULL) dlclose(libgame);
+
+    libgame = dlopen("./build/libgame.so", RTLD_NOW);
+    if (libgame == NULL) {
+        nob_log(ERROR, "Could not load libgame: %s", dlerror());
+        return false;
     }
+
+    #define X(name, ...)  \
+        name = dlsym(libgame, #name); \
+        if (name == NULL) { \
+            nob_log(ERROR, "Could not load symbol %s: %s", #name, dlerror()); \
+            return false; \
+        }
+    GAME_FUNCS
+    #undef X
+
+#endif // HOTRELOAD
+    return true;
 }
 
 int main(void) {
     InitWindow(640, 480, "My Raylib App");
 
-    static Game game;
-    game_init(&game);
+    if (!load_libgame()) return 1;
+
+    game_init();
 
 #ifdef PLATFORM_WEB
-    emscripten_set_main_loop_arg((em_arg_callback_func)game_update, &game, 0, true);
+    emscripten_set_main_loop(game_update, 0, true);
 #else
-    while (!WindowShouldClose()) game_update(&game);
+    while (!WindowShouldClose()) {
+#ifdef HOTRELOAD
+        if (IsKeyPressed(KEY_F5)) {
+            Game *game = game_pre_reload();
+            load_libgame();
+            game_post_reload(game);
+        }
+#endif // HOTRELOAD
+        game_update();
+    }
 #endif // PLATFORM_WEB
 
     CloseWindow();
